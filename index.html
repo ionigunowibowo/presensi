@@ -206,64 +206,94 @@ function populateGenerusDropdown(data) {
 
         // Memproses Penambahan Generus Baru
         window.submitNewGenerus = async function() {
-            const nama = document.getElementById('new-nama').value.trim();
-            const kelompok = document.getElementById('new-kelompok').value.trim();
-            const jenjang = document.getElementById('new-jenjang').value.trim();
+    const nama = document.getElementById('new-nama').value.trim();
+    const kelompok = document.getElementById('new-kelompok').value.trim();
+    const jenjang = document.getElementById('new-jenjang').value.trim();
+    const status = document.getElementById('new-status').value;
 
-            if (!nama || !kelompok || !jenjang) {
-                showMessage("Semua kolom (Nama, Kelompok, Jenjang) wajib diisi.", 'error');
-                return;
-            }
+    if (!nama || !kelompok || !jenjang || !status) {
+        showMessage("Semua kolom (Nama, Kelompok, Jenjang, Status) wajib diisi.", 'error');
+        return;
+    }
 
-            const submitButton = document.querySelector('#new-generus-form button[type="submit"]');
-            submitButton.disabled = true;
-            submitButton.textContent = 'Menyimpan...';
+    const submitButton = document.querySelector('#new-generus-form button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = 'Menyimpan...';
 
-            const newGenerusData = {
-                action: 'addMaster',
+    const newGenerusData = {
+        action: 'addMaster',
+        nama: nama,
+        kelompok: kelompok,
+        jenjang: jenjang
+    };
+
+    try {
+        if (!isOnlineMode) {
+            throw new Error("Tidak dapat menambah data master dalam Mode Lokal.");
+        }
+
+        // Kirim data ke Apps Script (POST)
+        const response = await fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newGenerusData)
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            // Tambahkan ke list lokal
+            generusMasterList.push(result.data);
+            populateGenerusDropdown(generusMasterList);
+
+            // Reset form & sembunyikan
+            document.getElementById('new-generus-form').reset();
+            toggleAddGenerusForm();
+
+            showMessage(`Generus "${nama}" berhasil ditambahkan!`, 'success');
+
+            // === PRESENSI OTOMATIS SESUAI STATUS YANG DIPILIH ===
+            const presensiData = {
+                action: 'addPresensi',
+                timestamp: new Date().toLocaleString('id-ID'),
                 nama: nama,
                 kelompok: kelompok,
-                jenjang: jenjang
+                jenjang: jenjang,
+                status: status
             };
-            
-            try {
-                if (!isOnlineMode) {
-                     throw new Error("Tidak dapat menambah data master dalam Mode Lokal.");
-                }
 
-                // Kirim data ke Apps Script (POST)
-                const response = await fetch(APPS_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newGenerusData)
-                });
-                
-                const result = await response.json();
+            await fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(presensiData)
+            });
 
-                if (result.status === 'success') {
-                    // Tambahkan generus baru ke list lokal
-                    generusMasterList.push(result.data);
-                    
-                    // Perbarui dropdown
-                    populateGenerusDropdown(generusMasterList);
-                    
-                    // Reset form dan sembunyikan
-                    document.getElementById('new-generus-form').reset();
-                    toggleAddGenerusForm();
+            presensiLog.push({
+                id: crypto.randomUUID(),
+                nama,
+                kelompok,
+                jenjang,
+                status,
+                timestamp: Date.now()
+            });
+            renderAttendanceLogs(presensiLog);
+            renderRecap(presensiLog);
 
-                    showMessage(`Generus "${nama}" berhasil ditambahkan ke database!`, 'success');
-                } else {
-                    showMessage(`Gagal menambahkan generus: ${result.message}`, 'error');
-                }
-                
-            } catch (error) {
-                console.error("Error menambahkan generus baru:", error);
-                showMessage("Terjadi kesalahan saat menyimpan data master. Pastikan Apps Script sudah di-deploy ulang dan URL benar!", 'error');
-            } finally {
-                submitButton.disabled = false;
-                submitButton.textContent = 'Simpan Generus Baru';
-            }
+            showMessage(`Presensi otomatis berhasil untuk "${nama}" (${status}).`, 'success');
+        } else {
+            showMessage(`Gagal menambahkan generus: ${result.message}`, 'error');
         }
+
+    } catch (error) {
+        console.error("Error menambahkan generus baru:", error);
+        showMessage("Terjadi kesalahan saat menyimpan data master. Pastikan Apps Script sudah di-deploy ulang dan URL benar!", 'error');
+    } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Simpan Generus Baru';
+    }
+};
+
         
         // Menampilkan Log Presensi Mentah
         function renderAttendanceLogs(logs) {
@@ -563,6 +593,15 @@ function renderRecap(logs) {
                                     <input type="text" id="new-jenjang" required class="w-full p-2 border border-gray-300 rounded-lg">
                                 </div>
                             </div>
+                            <div class="mb-4">
+    <label for="new-status" class="block text-sm font-medium text-gray-700">Presensi</label>
+    <select id="new-status" required class="w-full p-2 border border-gray-300 rounded-lg">
+        <option value="" disabled selected>-- Pilih Status Presensi --</option>
+        <option value="Hadir">Hadir</option>
+        <option value="Izin">Izin</option>
+    </select>
+</div>
+
                             <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg transition duration-300">
                                 Simpan Generus Baru
                             </button>
