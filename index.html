@@ -85,23 +85,47 @@
         }
 
         // Mengisi Dropdown Generus
-        function populateGenerusDropdown(data) {
-            const select = document.getElementById('generus-select');
-            select.innerHTML = '<option value="" disabled selected>-- Pilih Nama Anda --</option>'; 
-            
-            // Sortir data berdasarkan nama
-            data.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
-            
-            data.forEach((item) => {
-                const option = document.createElement('option');
-                // Gunakan ID sebagai value, bukan nama
-                option.value = item.id || item.nama; 
-                option.textContent = `${item.nama} (${item.kelompok})`;
-                option.dataset.jenjang = item.jenjang || 'N/A';
-                option.dataset.kelompok = item.kelompok || 'N/A';
-                select.appendChild(option);
-            });
-        }
+        // --- Dropdown Bertingkat: Pilih Kelompok -> Nama Generus ---
+function populateGenerusDropdown(data) {
+    const kelompokSelect = document.getElementById('kelompok-select');
+    const generusSelect = document.getElementById('generus-select');
+
+    // Kosongkan dropdown dulu
+    kelompokSelect.innerHTML = '<option value="">-- Pilih Kelompok --</option>';
+    generusSelect.innerHTML = '<option value="">-- Pilih Nama --</option>';
+
+    // Ambil semua kelompok unik
+    const kelompokList = [...new Set(data.map(g => g.kelompok))].sort();
+
+    // Isi dropdown kelompok
+    kelompokList.forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = k;
+        kelompokSelect.appendChild(opt);
+    });
+
+    // Event: saat kelompok dipilih, isi dropdown nama
+    kelompokSelect.addEventListener('change', () => {
+        const selectedKelompok = kelompokSelect.value;
+        generusSelect.innerHTML = '<option value="">-- Pilih Nama --</option>';
+
+        if (!selectedKelompok) return;
+
+        const filtered = data.filter(g => g.kelompok === selectedKelompok)
+                             .sort((a, b) => a.nama.localeCompare(b.nama));
+
+        filtered.forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g.id || g.nama;
+            opt.textContent = g.nama;
+            opt.dataset.jenjang = g.jenjang || 'N/A';
+            opt.dataset.kelompok = g.kelompok || 'N/A';
+            generusSelect.appendChild(opt);
+        });
+    });
+}
+
 
         // Memproses Presensi Baru (Menyimpan ke Google Sheet via Apps Script)
         window.submitPresensi = async function() {
@@ -116,7 +140,7 @@
 
             const selectedOption = select.options[select.selectedIndex];
             // Ambil nama dari text konten, hilangkan bagian kelompok di dalam kurung
-            const nama = selectedOption.textContent.split('(')[0].trim();
+            const nama = selectedOption.textContent;
             const kelompok = selectedOption.dataset.kelompok;
             const jenjang = selectedOption.dataset.jenjang;
             
@@ -483,31 +507,38 @@ function renderRecap(logs) {
             <div id="presensi-view" class="view bg-white p-6 rounded-xl shadow-lg">
                 <h2 class="text-2xl font-semibold text-gray-800 mb-6">Catat Kehadiran Pengajian</h2>
                 <form id="presensi-form" onsubmit="event.preventDefault(); submitPresensi();">
-                    
-                    <!-- Dropdown Pilihan Generus -->
-                    <div class="mb-4">
-                        <label for="generus-select" class="block text-sm font-medium text-gray-700 mb-1">Nama Generus</label>
-                        <select id="generus-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
-                            <option value="" disabled selected>-- Memuat Data Generus... --</option>
-                        </select>
-                        <p class="text-xs text-gray-500 mt-1">Data ini diambil dari Spreadsheet.</p>
-                    </div>
 
-                    <!-- Pilihan Status Kehadiran -->
-                    <div class="mb-6">
-                        <label for="status-select" class="block text-sm font-medium text-gray-700 mb-1">Status Kehadiran</label>
-                        <select id="status-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
-                            <option value="Hadir">Hadir</option>
-                            <option value="Izin">Izin</option>
-                       
-                        </select>
-                    </div>
+    <!-- Pilih Kelompok -->
+    <div class="mb-4">
+        <label for="kelompok-select" class="block text-sm font-medium text-gray-700 mb-1">Kelompok</label>
+        <select id="kelompok-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="">-- Pilih Kelompok --</option>
+        </select>
+    </div>
 
-                    <!-- Tombol Submit -->
-                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300">
-                        Kirim
-                    </button>
-                </form>
+    <!-- Pilih Nama Sesuai Kelompok -->
+    <div class="mb-4">
+        <label for="generus-select" class="block text-sm font-medium text-gray-700 mb-1">Nama Generus</label>
+        <select id="generus-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="">-- Pilih Nama --</option>
+        </select>
+    </div>
+
+    <!-- Pilihan Status Kehadiran -->
+    <div class="mb-6">
+        <label for="status-select" class="block text-sm font-medium text-gray-700 mb-1">Status Kehadiran</label>
+        <select id="status-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="Hadir">Hadir</option>
+            <option value="Izin">Izin</option>
+        </select>
+    </div>
+
+    <!-- Tombol Submit -->
+    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300">
+        Kirim
+    </button>
+</form>
+
 
                 <!-- Tombol dan Formulir Tambah Generus Baru -->
                 <div class="mt-8 border-t pt-6">
