@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Presensi Generus LDII (Fitur Tambah Master)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter Font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .tab-button.active {
+            background-color: #10B981; /* Emerald-500 */
+            color: white;
+            font-weight: 600;
+        }
+    </style>
+    <!-- Script Aplikasi -->
+    <script type="module">
+        // --- KONFIGURASI PENTING ---
+        // GANTI BAGIAN INI DENGAN URL APPS SCRIPT YANG SUDAH DI-DEPLOY!
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdKpx5rXg_v90R6jQdALEt9VbE_910i6gEWeJpKlIqd-xAeY8RVmj-ab2rADAJwCbs/exec'; 
+        // --- AKHIR KONFIGURASI ---
+
+        // Global Variables
+        let generusMasterList = [];
+        let presensiLog = [];
+        let isOnlineMode = false;
+
+        // --- FUNGSI UTAMA ---
+
+        // Inisialisasi dan Memuat Data dari Apps Script
+        async function initApp() {
+            document.getElementById('loading-state').classList.remove('hidden');
+            document.getElementById('main-content').classList.add('hidden');
+
+            try {
+                // Fetch Data Master (Simulasi mode GET: ?action=getMaster)
+                const masterResponse = await fetch(`${APPS_SCRIPT_URL}?action=getMaster`);
+                const masterData = await masterResponse.json();
+                
+                // Fetch Log Presensi (Simulasi mode GET: ?action=getLogs)
+                const logsResponse = await fetch(`${APPS_SCRIPT_URL}?action=getLogs`);
+                const logsData = await logsResponse.json();
+
+                if (masterData.status === 'success' && logsData.status === 'success') {
+                    generusMasterList = masterData.data || [];
+                    presensiLog = logsData.data || [];
+                    
+                    populateGenerusDropdown(generusMasterList);
+                    renderAttendanceLogs(presensiLog);
+                    renderRecap(presensiLog);
+
+                    isOnlineMode = true;
+                    showMessage("Aplikasi terhubung ke Google Sheets via Apps Script.", 'success');
+
+                } else {
+                    // Jika Apps Script berhasil dipanggil tapi mengembalikan status error, tampilkan pesan
+                    throw new Error(masterData.message || logsData.message || "Gagal memuat data awal dari Apps Script.");
+                }
+
+            } catch (error) {
+                console.error("Kesalahan koneksi atau data Apps Script:", error);
+                
+                // Fallback ke mode lokal (mock data) jika gagal koneksi
+                generusMasterList = [
+                    { id: 'g001', nama: 'Budi Santoso', kelompok: 'A', jenjang: 'Remaja' },
+                    { id: 'g002', nama: 'Siti Rahayu', kelompok: 'B', jenjang: 'Pemuda' },
+                ];
+                presensiLog = [];
+                
+                populateGenerusDropdown(generusMasterList);
+                renderAttendanceLogs(presensiLog);
+                renderRecap(presensiLog);
+
+                isOnlineMode = false;
+                showMessage("Gagal terhubung ke Apps Script. Menggunakan Mode Lokal (Data tidak tersimpan).", 'error');
+            }
+
+            document.getElementById('loading-state').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+        }
+
+        // Mengisi Dropdown Generus
+        function populateGenerusDropdown(data) {
+            const select = document.getElementById('generus-select');
+            select.innerHTML = '<option value="" disabled selected>-- Pilih Nama Anda --</option>'; 
+            
+            // Sortir data berdasarkan nama
+            data.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+            
+            data.forEach((item) => {
+                const option = document.createElement('option');
+                // Gunakan ID sebagai value, bukan nama
+                option.value = item.id || item.nama; 
+                option.textContent = `${item.nama} (${item.kelompok})`;
+                option.dataset.jenjang = item.jenjang || 'N/A';
+                option.dataset.kelompok = item.kelompok || 'N/A';
+                select.appendChild(option);
+            });
+        }
+
+        // Memproses Presensi Baru (Menyimpan ke Google Sheet via Apps Script)
+        window.submitPresensi = async function() {
+            const select = document.getElementById('generus-select');
+            const status = document.getElementById('status-select').value;
+            const generusId = select.value;
+
+            if (!generusId || !status) {
+                showMessage("Pilih Nama Generus dan Status Kehadiran.", 'error');
+                return;
+            }
+
+            const selectedOption = select.options[select.selectedIndex];
+            // Ambil nama dari text konten, hilangkan bagian kelompok di dalam kurung
+            const nama = selectedOption.textContent.split('(')[0].trim();
+            const kelompok = selectedOption.dataset.kelompok;
+            const jenjang = selectedOption.dataset.jenjang;
+            
+            const submitButton = document.querySelector('#presensi-form button[type="submit"]');
+            submitButton.disabled = true;
+            submitButton.textContent = 'Mencatat...';
+
+            const presensiData = {
+                action: 'addPresensi',
+                timestamp: new Date().toLocaleString('id-ID'), 
+                nama: nama,
+                kelompok: kelompok,
+                jenjang: jenjang,
+                status: status
+            };
+            
+            let successMessage = `Presensi ${nama} (${status}) berhasil dicatat!`;
+
+            try {
+                if (isOnlineMode) {
+                    // Fetch dengan mode 'no-cors' untuk Apps Script
+                    const response = await fetch(APPS_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // Penting untuk Apps Script sebagai endpoint
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(presensiData)
+                    });
+                    
+                    // Karena mode 'no-cors' respons tidak bisa dibaca, kita asumsikan berhasil
+                    // Tambahkan data ke log lokal untuk update UI
+                    presensiLog.push({ 
+                        id: crypto.randomUUID(), 
+                        generusId, 
+                        nama, 
+                        kelompok, 
+                        jenjang, 
+                        status, 
+                        timestamp: Date.now() // Gunakan timestamp lokal untuk sorting
+                    });
+                    
+                    renderAttendanceLogs(presensiLog);
+                    renderRecap(presensiLog);
+                    
+                } else {
+                    // Mode Lokal
+                    presensiLog.push({ ...presensiData, id: crypto.randomUUID(), timestamp: Date.now() });
+                    renderAttendanceLogs(presensiLog);
+                    renderRecap(presensiLog);
+                    successMessage = `Presensi ${nama} (${status}) berhasil dicatat ke log lokal! (TIDAK tersimpan online)`;
+                }
+
+                showMessage(successMessage, 'success');
+                document.getElementById('presensi-form').reset();
+                
+            } catch (error) {
+                console.error("Error mencatat presensi:", error);
+                showMessage("Gagal mencatat presensi. Cek konsol atau Apps Script URL.", 'error');
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Catat Presensi Sekarang';
+            }
+        }
+
+        // Memproses Penambahan Generus Baru
+        window.submitNewGenerus = async function() {
+            const nama = document.getElementById('new-nama').value.trim();
+            const kelompok = document.getElementById('new-kelompok').value.trim();
+            const jenjang = document.getElementById('new-jenjang').value.trim();
+
+            if (!nama || !kelompok || !jenjang) {
+                showMessage("Semua kolom (Nama, Kelompok, Jenjang) wajib diisi.", 'error');
+                return;
+            }
+
+            const submitButton = document.querySelector('#new-generus-form button[type="submit"]');
+            submitButton.disabled = true;
+            submitButton.textContent = 'Menyimpan...';
+
+            const newGenerusData = {
+                action: 'addMaster',
+                nama: nama,
+                kelompok: kelompok,
+                jenjang: jenjang
+            };
+            
+            try {
+                if (!isOnlineMode) {
+                     throw new Error("Tidak dapat menambah data master dalam Mode Lokal.");
+                }
+
+                // Kirim data ke Apps Script (POST)
+                const response = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newGenerusData)
+                });
+                
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    // Tambahkan generus baru ke list lokal
+                    generusMasterList.push(result.data);
+                    
+                    // Perbarui dropdown
+                    populateGenerusDropdown(generusMasterList);
+                    
+                    // Reset form dan sembunyikan
+                    document.getElementById('new-generus-form').reset();
+                    toggleAddGenerusForm();
+
+                    showMessage(`Generus "${nama}" berhasil ditambahkan ke database master!`, 'success');
+                } else {
+                    showMessage(`Gagal menambahkan generus: ${result.message}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error("Error menambahkan generus baru:", error);
+                showMessage("Terjadi kesalahan saat menyimpan data master. Pastikan Apps Script sudah di-deploy ulang dan URL benar!", 'error');
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Simpan Generus Baru';
+            }
+        }
+        
+        // Menampilkan Log Presensi Mentah
+        function renderAttendanceLogs(logs) {
+            const tableBody = document.getElementById('log-table-body');
+            tableBody.innerHTML = ''; 
+            
+            logs.sort((a, b) => b.timestamp - a.timestamp); // Urutkan terbaru di atas
+
+            if (logs.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">Belum ada data presensi.</td></tr>';
+                return;
+            }
+
+            logs.forEach(log => {
+                // Gunakan log.timestamp jika dari Apps Script, atau Date.now() jika dari log lokal
+                const dateSource = log.timestamp && !isNaN(new Date(log.timestamp)) ? new Date(log.timestamp) : new Date();
+                const date = dateSource.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+                
+                const row = tableBody.insertRow();
+                row.className = 'border-b hover:bg-gray-50';
+                
+                row.insertCell().textContent = date;
+                row.insertCell().textContent = log.nama || 'N/A';
+                row.insertCell().textContent = log.kelompok || 'N/A';
+                row.insertCell().textContent = log.jenjang || 'N/A';
+                
+                const statusCell = row.insertCell();
+                statusCell.textContent = log.status;
+                
+                if (log.status === 'Hadir') {
+                    statusCell.classList.add('font-semibold', 'text-green-600');
+                } else if (log.status === 'Izin' || log.status === 'Sakit') {
+                    statusCell.classList.add('font-semibold', 'text-yellow-600');
+                } else {
+                     statusCell.classList.add('font-semibold', 'text-red-600');
+                }
+            });
+        }
+
+        // Menghitung dan Menampilkan Rekapitulasi (Alpha otomatis)
+function renderRecap(logs) {
+    const recapSummaryDiv = document.getElementById('recap-summary');
+    const recapKelompokDiv = document.getElementById('recap-kelompok');
+
+    // --- Ambil data generus master dan log hari ini ---
+    const totalGenerus = generusMasterList.length;
+
+    // Filter log hari ini (berdasarkan tanggal lokal)
+    const today = new Date().toLocaleDateString('id-ID');
+    const logsToday = logs.filter(log => {
+        const logDate = new Date(log.timestamp).toLocaleDateString('id-ID');
+        return logDate === today;
+    });
+
+    // Ambil unique nama generus yang sudah presensi hari ini
+    const hadirIds = new Set(logsToday.map(l => l.nama));
+
+    // Hitung total status hari ini
+    const totalHadir = logsToday.filter(l => l.status === 'Hadir').length;
+    const totalIzin = logsToday.filter(l => l.status === 'Izin').length;
+    const totalSakit = logsToday.filter(l => l.status === 'Sakit').length;
+
+    // Hitung otomatis Alpha (generus yang belum presensi)
+    const totalAlpha = Math.max(totalGenerus - hadirIds.size, 0);
+
+    const totalPresensi = totalHadir + totalIzin + totalSakit + totalAlpha;
+
+    // Hitung persentase
+    const pctHadir = totalPresensi ? ((totalHadir / totalGenerus) * 100).toFixed(1) : 0;
+    const pctIzin = totalPresensi ? ((totalIzin / totalGenerus) * 100).toFixed(1) : 0;
+    const pctAlpha = totalPresensi ? ((totalAlpha / totalGenerus) * 100).toFixed(1) : 0;
+
+    // --- REKAP TOTAL ---
+    recapSummaryDiv.innerHTML = `
+        <div class="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md border-b-4 border-emerald-500">
+            <p class="text-3xl font-bold text-gray-800">${totalGenerus}</p>
+            <p class="text-sm text-gray-500">Total Generus Terdaftar</p>
+        </div>
+        <div class="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md border-b-4 border-green-500">
+            <p class="text-3xl font-bold text-green-600">${totalHadir}</p>
+            <p class="text-sm text-gray-500">Hadir (${pctHadir}%)</p>
+        </div>
+        <div class="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md border-b-4 border-yellow-500">
+            <p class="text-3xl font-bold text-yellow-600">${totalIzin}</p>
+            <p class="text-sm text-gray-500">Izin (${pctIzin}%)</p>
+        </div>
+        <div class="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md border-b-4 border-red-500">
+            <p class="text-3xl font-bold text-red-600">${totalAlpha}</p>
+            <p class="text-sm text-gray-500">Alpha (${pctAlpha}%)</p>
+        </div>
+    `;
+
+    // --- REKAP PER KELOMPOK ---
+    const recapByKelompok = {};
+
+    // Inisialisasi tiap kelompok dari master list
+    generusMasterList.forEach(g => {
+        if (!recapByKelompok[g.kelompok]) {
+            recapByKelompok[g.kelompok] = { Hadir: 0, Izin: 0, Sakit: 0, Alpha: 0, Total: 0 };
+        }
+        recapByKelompok[g.kelompok].Total++;
+    });
+
+    // Tambahkan log ke dalam rekap
+    logsToday.forEach(l => {
+        const k = l.kelompok || 'Tanpa Kelompok';
+        if (!recapByKelompok[k]) recapByKelompok[k] = { Hadir: 0, Izin: 0, Sakit: 0, Alpha: 0, Total: 0 };
+        if (l.status === 'Hadir') recapByKelompok[k].Hadir++;
+        if (l.status === 'Izin') recapByKelompok[k].Izin++;
+        if (l.status === 'Sakit') recapByKelompok[k].Sakit++;
+    });
+
+    // Hitung Alpha per kelompok otomatis
+    for (const k in recapByKelompok) {
+        const gKelompok = generusMasterList.filter(g => g.kelompok === k).length;
+        const presensiKelompok = recapByKelompok[k].Hadir + recapByKelompok[k].Izin + recapByKelompok[k].Sakit;
+        recapByKelompok[k].Alpha = Math.max(gKelompok - presensiKelompok, 0);
+    }
+
+    // Render tabel
+    let kelompokHTML = `
+        <h3 class="text-xl font-semibold mb-4 text-gray-700">Rekap Presensi per Kelompok (Hari Ini)</h3>
+        <div class="overflow-x-auto">
+            <table class="min-w-full bg-white rounded-lg shadow">
+                <thead class="bg-gray-200 text-gray-600 uppercase text-xs leading-normal">
+                    <tr>
+                        <th class="py-3 px-6 text-left">Kelompok</th>
+                        <th class="py-3 px-6 text-center text-green-600">Hadir</th>
+                        <th class="py-3 px-6 text-center text-yellow-600">Izin</th>
+                        <th class="py-3 px-6 text-center text-red-600">Alpha</th>
+                        <th class="py-3 px-6 text-center">Total</th>
+                        <th class="py-3 px-6 text-center">%</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm font-light">
+    `;
+
+    const sortedKelompok = Object.keys(recapByKelompok).sort();
+    sortedKelompok.forEach(k => {
+        const d = recapByKelompok[k];
+        const hadirPct = d.Total ? ((d.Hadir / d.Total) * 100).toFixed(1) : 0;
+        kelompokHTML += `
+            <tr class="border-b border-gray-200 hover:bg-gray-100">
+                <td class="py-3 px-6 text-left font-medium">${k}</td>
+                <td class="py-3 px-6 text-center text-green-600 font-bold">${d.Hadir}</td>
+                <td class="py-3 px-6 text-center text-yellow-600 font-bold">${d.Izin}</td>
+                <td class="py-3 px-6 text-center text-red-600 font-bold">${d.Alpha}</td>
+                <td class="py-3 px-6 text-center font-bold">${d.Total}</td>
+                <td class="py-3 px-6 text-center font-semibold">${hadirPct}%</td>
+            </tr>
+        `;
+    });
+
+    kelompokHTML += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    recapKelompokDiv.innerHTML = kelompokHTML;
+}
+
+
+        // --- UTILITAS UI ---
+
+        window.switchTab = function(tabName) {
+            document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+
+            document.getElementById(`${tabName}-view`).classList.remove('hidden');
+            document.getElementById(`${tabName}-btn`).classList.add('active');
+        }
+
+        window.toggleAddGenerusForm = function() {
+            const form = document.getElementById('new-generus-container');
+            const btn = document.getElementById('add-generus-btn');
+            
+            if (form.classList.contains('hidden')) {
+                form.classList.remove('hidden');
+                btn.textContent = 'Sembunyikan Formulir';
+            } else {
+                form.classList.add('hidden');
+                btn.textContent = 'Nama Saya Belum Ada? Tambah Data Master';
+            }
+
+            if (!isOnlineMode) {
+                showMessage("Saat ini dalam Mode Lokal. Penambahan data master tidak akan tersimpan online.", 'error');
+            }
+        }
+
+        function showMessage(msg, type) {
+            const msgDiv = document.getElementById('system-message');
+            msgDiv.textContent = msg;
+            msgDiv.className = `p-3 mb-4 rounded-lg text-sm text-center ${type === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`;
+            msgDiv.classList.remove('hidden');
+
+            setTimeout(() => {
+                msgDiv.classList.add('hidden');
+            }, 7000);
+        }
+        
+        // --- MEMUAT APLIKASI ---
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</head>
+<body class="bg-gray-100">
+    <!-- State Loading -->
+    <div id="loading-state" class="flex items-center justify-center h-screen">
+        <div class="text-center p-6 bg-white rounded-lg shadow-xl">
+            <svg class="animate-spin h-5 w-5 text-emerald-500 mx-auto mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600">Mencoba terhubung ke Google Sheets (Apps Script)...</p>
+        </div>
+    </div>
+
+    <!-- Konten Utama (Tersembunyi sampai siap) -->
+    <div id="main-content" class="min-h-screen hidden">
+        <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+            <!-- Header dan Navigasi -->
+            <header class="bg-white rounded-xl shadow-lg p-6 mb-8">
+                <h1 class="text-3xl font-extrabold text-emerald-600 mb-2">Portal Presensi Generus (Master Self-Service)</h1>
+                <p class="text-gray-500 text-sm mb-4" id="user-id-display">Mode Database: Google Sheets via Apps Script (Perlu Deployment Ulang).</p>
+                
+                <!-- Navigasi Tab -->
+                <div class="flex border-b border-gray-200">
+                    <button id="presensi-btn" onclick="switchTab('presensi')" class="tab-button active py-2 px-4 rounded-t-lg transition-colors duration-200 text-gray-700 hover:bg-gray-200">
+                        Input Presensi
+                    </button>
+                    <button id="dashboard-btn" onclick="switchTab('dashboard')" class="tab-button py-2 px-4 rounded-t-lg transition-colors duration-200 text-gray-700 hover:bg-gray-200">
+                        Dashboard Rekap
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Area Pesan Sistem -->
+            <div id="system-message" class="hidden"></div>
+
+            <!-- VIEW 1: Input Presensi -->
+            <div id="presensi-view" class="view bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-6">Catat Kehadiran Pengajian</h2>
+                <form id="presensi-form" onsubmit="event.preventDefault(); submitPresensi();">
+                    
+                    <!-- Dropdown Pilihan Generus -->
+                    <div class="mb-4">
+                        <label for="generus-select" class="block text-sm font-medium text-gray-700 mb-1">Nama Generus (Pilih Nama Anda)</label>
+                        <select id="generus-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                            <option value="" disabled selected>-- Memuat Data Generus... --</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">Data ini diambil dari Sheet "MasterGenerus" Anda.</p>
+                    </div>
+
+                    <!-- Pilihan Status Kehadiran -->
+                    <div class="mb-6">
+                        <label for="status-select" class="block text-sm font-medium text-gray-700 mb-1">Status Kehadiran</label>
+                        <select id="status-select" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                            <option value="Hadir">Hadir</option>
+                            <option value="Izin">Izin (Mohon lampirkan alasan)</option>
+                            <option value="Sakit">Sakit (Mohon lampirkan surat)</option>
+                        </select>
+                    </div>
+
+                    <!-- Tombol Submit -->
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300">
+                        Catat Presensi Sekarang
+                    </button>
+                </form>
+
+                <!-- Tombol dan Formulir Tambah Generus Baru -->
+                <div class="mt-8 border-t pt-6">
+                    <button id="add-generus-btn" onclick="toggleAddGenerusForm()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition duration-300">
+                        Nama Saya Belum Ada? Tambah Data Master
+                    </button>
+                    
+                    <div id="new-generus-container" class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg hidden">
+                        <h3 class="text-lg font-semibold text-yellow-800 mb-4">Formulir Tambah Generus Baru</h3>
+                        <form id="new-generus-form" onsubmit="event.preventDefault(); submitNewGenerus();">
+                            <div class="mb-3">
+                                <label for="new-nama" class="block text-sm font-medium text-gray-700">Nama Lengkap</label>
+                                <input type="text" id="new-nama" required class="w-full p-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3 mb-4">
+                                <div>
+                                    <label for="new-kelompok" class="block text-sm font-medium text-gray-700">Kelompok</label>
+                                    <input type="text" id="new-kelompok" required class="w-full p-2 border border-gray-300 rounded-lg">
+                                </div>
+                                <div>
+                                    <label for="new-jenjang" class="block text-sm font-medium text-gray-700">Jenjang (Cth: Remaja/Pemuda)</label>
+                                    <input type="text" id="new-jenjang" required class="w-full p-2 border border-gray-300 rounded-lg">
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg transition duration-300">
+                                Simpan Generus Baru
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- VIEW 2: Dashboard Rekap -->
+            <div id="dashboard-view" class="view hidden bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-6">Dashboard Rekapitulasi Presensi</h2>
+                
+                <!-- Rekap Ringkasan Total -->
+                <div id="recap-summary" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <!-- Konten akan diisi oleh JS (renderRecap) -->
+                </div>
+
+                <!-- Rekap per Kelompok -->
+                <div id="recap-kelompok" class="mb-8 p-4 bg-gray-50 rounded-lg">
+                    <!-- Konten Rekap Kelompok akan diisi oleh JS -->
+                </div>
+
+                <!-- Log Presensi Mentah -->
+                <h3 class="text-xl font-semibold mb-4 text-gray-700 border-t pt-4">Log Presensi Terakhir</h3>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full bg-white rounded-lg shadow">
+                        <thead class="bg-gray-200 text-gray-600 uppercase text-xs leading-normal">
+                            <tr>
+                                <th class="py-3 px-6 text-left">Waktu Presensi</th>
+                                <th class="py-3 px-6 text-left">Nama</th>
+                                <th class="py-3 px-6 text-left">Kelompok</th>
+                                <th class="py-3 px-6 text-left">Jenjang</th>
+                                <th class="py-3 px-6 text-left">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-table-body" class="text-gray-600 text-sm font-light">
+                            <tr><td colspan="5" class="py-4 text-center">Memuat data log...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+             <!-- Footer Info -->
+            <footer class="mt-8 text-center text-xs text-gray-500">
+                Aplikasi ini terintegrasi dengan Google Sheets menggunakan Google Apps Script.
+            </footer>
+        </div>
+    </div>
+</body>
+</html>
